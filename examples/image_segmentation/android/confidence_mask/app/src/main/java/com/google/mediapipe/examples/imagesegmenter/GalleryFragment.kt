@@ -36,6 +36,7 @@ import androidx.core.view.drawToBitmap
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import com.google.mediapipe.examples.imagesegmenter.databinding.FragmentGalleryBinding
+import com.google.mediapipe.examples.imagesegmenter.tensorflow.TensorImageSegmenterHelper
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.framework.image.ByteBufferExtractor
 import com.google.mediapipe.tasks.vision.core.RunningMode
@@ -46,9 +47,13 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import org.tensorflow.lite.support.image.ImageProcessor
+import org.tensorflow.lite.support.image.TensorImage
+import org.tensorflow.lite.task.vision.segmenter.Segmentation
 import java.nio.ByteBuffer
 
-class GalleryFragment : Fragment(), ImageSegmenterHelper.SegmenterListener {
+class GalleryFragment : Fragment(), ImageSegmenterHelper.SegmenterListener,
+    TensorImageSegmenterHelper.TensorSegmentationListener {
     enum class MediaType {
         IMAGE, VIDEO, UNKNOWN
     }
@@ -60,6 +65,8 @@ class GalleryFragment : Fragment(), ImageSegmenterHelper.SegmenterListener {
         maskPaint.style = Paint.Style.FILL
         maskPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
     }
+
+    private var tensorImageSegmenterHelper: TensorImageSegmenterHelper? = null
 
     private val viewModel: MainViewModel by activityViewModels()
 
@@ -74,7 +81,8 @@ class GalleryFragment : Fragment(), ImageSegmenterHelper.SegmenterListener {
             // Handle the returned Uri
             uri?.let { mediaUri ->
                 when (val mediaType = loadMediaType(mediaUri)) {
-                    MediaType.IMAGE -> runSegmentationOnImage(mediaUri)
+//                    MediaType.IMAGE -> runSegmentationOnImage(mediaUri)
+                    MediaType.IMAGE -> runTensorSegmentationOnImage(mediaUri)
                     MediaType.UNKNOWN -> {
                         updateDisplayView(mediaType)
                         Toast.makeText(
@@ -99,6 +107,7 @@ class GalleryFragment : Fragment(), ImageSegmenterHelper.SegmenterListener {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
         fragmentGalleryBinding.fabGetContent.setOnClickListener {
             stopAllTasks()
             getContent.launch(arrayOf("image/*", "video/*"))
@@ -179,11 +188,81 @@ class GalleryFragment : Fragment(), ImageSegmenterHelper.SegmenterListener {
         updateDisplayView(MediaType.UNKNOWN)
     }
 
+    private fun runTensorSegmentationOnImage(uri: Uri) {
+        fragmentGalleryBinding.overlayView.setRunningMode(RunningMode.IMAGE)
+        setUiEnabled(false)
+        updateDisplayView(MediaType.IMAGE)
+
+        var inputImage = uri.toBitmap()
+        inputImage = inputImage.scaleDown2(INPUT_IMAGE_MAX_WIDTH)
+
+        fragmentGalleryBinding.imageResult.setImageBitmap(inputImage)
+
+        backgroundScope = CoroutineScope(Dispatchers.IO)
+
+        tensorImageSegmenterHelper = TensorImageSegmenterHelper(
+            context = requireContext()
+        )
+
+        backgroundScope?.launch {
+            // Create preprocessor for the image.
+            // See https://www.tensorflow.org/lite/inference_with_metadata/
+            //            lite_support#imageprocessor_architecture
+            val imageProcessor = ImageProcessor.Builder()
+                .build()
+
+            // Preprocess the image and convert it into a TensorImage for segmentation.
+            val tensorImage = imageProcessor.process(TensorImage.fromBitmap(inputImage))
+
+            val result = tensorImageSegmenterHelper?.segmentTensorImage(
+                tensorImage = tensorImage,
+            )
+
+            result?.let {
+                updateTensorOverlay(
+                    result = it,
+                    imageWidth = tensorImage.width,
+                    imageHeight = tensorImage.height,
+                )
+            }
+        }
+    }
+
+    private fun updateTensorOverlay(result: List<Segmentation>, imageWidth: Int, imageHeight: Int) {
+        if (_fragmentGalleryBinding != null) {
+            runBlocking {
+                withContext(Dispatchers.Main) {
+                    setUiEnabled(true)
+
+                    val maskTensor: TensorImage = result[0].masks[0]
+                    val maskArray: ByteBuffer = maskTensor.buffer
+
+                    fragmentGalleryBinding.overlayView.setTensorResults(
+                        byteBuffer = maskArray,
+                        maskTensor = maskTensor,
+                        outputWidth = imageWidth,
+                        outputHeight = imageHeight,
+                    )
+
+                    fragmentGalleryBinding.overlayView.visibility = View.GONE
+
+                    fragmentGalleryBinding.imageResult.setImageBitmap(
+                        getMaskedImage(
+                            input = fragmentGalleryBinding.imageResult.drawToBitmap(),
+                            mask = fragmentGalleryBinding.overlayView.drawToBitmap(),
+                        )
+                    )
+                }
+            }
+        }
+    }
+
     // Load and display the image.
     private fun runSegmentationOnImage(uri: Uri) {
         fragmentGalleryBinding.overlayView.setRunningMode(RunningMode.IMAGE)
         setUiEnabled(false)
         updateDisplayView(MediaType.IMAGE)
+
         var inputImage = uri.toBitmap()
         inputImage = inputImage.scaleDown2(INPUT_IMAGE_MAX_WIDTH)
 
@@ -235,9 +314,10 @@ class GalleryFragment : Fragment(), ImageSegmenterHelper.SegmenterListener {
 
     private fun updateOverlay(result: ImageSegmenterResult) {
         val newImage = result.categoryMask().get()
+        val results = ByteBufferExtractor.extract(newImage)
 
         updateOverlay(
-            results = ByteBufferExtractor.extract(newImage),
+            results = results,
             width = newImage.width,
             height = newImage.height,
             inferenceTime = result.timestampMs(),
@@ -251,6 +331,7 @@ class GalleryFragment : Fragment(), ImageSegmenterHelper.SegmenterListener {
         inferenceTime: Long,
     ) {
         if (_fragmentGalleryBinding != null) {
+
             runBlocking {
                 withContext(Dispatchers.Main) {
                     setUiEnabled(true)
@@ -366,5 +447,18 @@ class GalleryFragment : Fragment(), ImageSegmenterHelper.SegmenterListener {
 
     companion object {
         private const val INPUT_IMAGE_MAX_WIDTH = 512F
+    }
+
+    override fun onError(error: String) {
+        TODO("Not yet implemented")
+    }
+
+    override fun onResults(
+        results: List<Segmentation>?,
+        inferenceTime: Long,
+        imageHeight: Int,
+        imageWidth: Int
+    ) {
+        TODO("Not yet implemented")
     }
 }

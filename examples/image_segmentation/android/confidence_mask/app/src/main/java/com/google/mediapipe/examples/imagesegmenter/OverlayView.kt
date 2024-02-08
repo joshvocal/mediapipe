@@ -22,6 +22,7 @@ import android.graphics.Color
 import android.util.AttributeSet
 import android.view.View
 import com.google.mediapipe.tasks.vision.core.RunningMode
+import org.tensorflow.lite.support.image.TensorImage
 import java.nio.ByteBuffer
 import kotlin.math.min
 
@@ -43,6 +44,42 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
 
     fun setRunningMode(runningMode: RunningMode) {
         this.runningMode = runningMode
+    }
+
+    fun setTensorResults(
+        byteBuffer: ByteBuffer,
+        maskTensor: TensorImage,
+        outputWidth: Int,
+        outputHeight: Int
+    ) {
+        // Create the mask bitmap with colors and the set of detected labels.
+        val pixels = IntArray(byteBuffer.capacity())
+
+        for (i in pixels.indices) {
+            val index = byteBuffer.get(i).toUInt() % 20U
+
+            val color = if (index == 0U) Color.TRANSPARENT else Color.BLUE
+
+            pixels[i] = color
+        }
+        val image = Bitmap.createBitmap(
+            pixels,
+            maskTensor.width,
+            maskTensor.height,
+            Bitmap.Config.ARGB_8888
+        )
+
+        // RunningMode.IMAGE
+        val scaleFactor = min(width * 1f / outputWidth, height * 1f / outputHeight)
+
+        val scaleWidth = (outputWidth * scaleFactor).toInt()
+        val scaleHeight = (outputHeight * scaleFactor).toInt()
+
+        scaleBitmap = Bitmap.createScaledBitmap(
+            image, scaleWidth, scaleHeight, false
+        )
+
+        invalidate()
     }
 
     fun setResults(
