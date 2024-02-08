@@ -17,13 +17,7 @@
 package com.google.mediapipe.examples.imagesegmenter
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Matrix
-import android.os.SystemClock
 import android.util.Log
-import androidx.camera.core.ImageProxy
-import com.google.mediapipe.framework.image.BitmapImageBuilder
-import com.google.mediapipe.framework.image.ByteBufferExtractor
 import com.google.mediapipe.framework.image.MPImage
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.core.Delegate
@@ -31,10 +25,9 @@ import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenter
 import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenterResult
 import java.nio.ByteBuffer
-import java.nio.FloatBuffer
 
 class ImageSegmenterHelper(
-    var currentDelegate: Int = DELEGATE_CPU,
+    var currentDelegate: Int = DELEGATE_GPU,
     var runningMode: RunningMode = RunningMode.IMAGE,
     var currentModel: Int = MODEL_DEEPLABV3,
     val context: Context,
@@ -74,27 +67,31 @@ class ImageSegmenterHelper(
     // that are created on the main thread and used on a background thread, but
     // the GPU delegate needs to be used on the thread that initialized the
     // segmenter
-    fun setupImageSegmenter() {
+    private fun setupImageSegmenter() {
         val baseOptionsBuilder = BaseOptions.builder()
         when (currentDelegate) {
             DELEGATE_CPU -> {
                 baseOptionsBuilder.setDelegate(Delegate.CPU)
             }
+
             DELEGATE_GPU -> {
                 baseOptionsBuilder.setDelegate(Delegate.GPU)
             }
         }
 
-        when(currentModel) {
+        when (currentModel) {
             MODEL_DEEPLABV3 -> {
                 baseOptionsBuilder.setModelAssetPath(MODEL_DEEPLABV3_PATH)
             }
+
             MODEL_HAIR_SEGMENTER -> {
                 baseOptionsBuilder.setModelAssetPath(MODEL_HAIR_SEGMENTER_PATH)
             }
+
             MODEL_SELFIE_SEGMENTER -> {
                 baseOptionsBuilder.setModelAssetPath(MODEL_SELFIE_SEGMENTER_PATH)
             }
+
             MODEL_SELFIE_MULTICLASS -> {
                 baseOptionsBuilder.setModelAssetPath(MODEL_SELFIE_MULTICLASS_PATH)
             }
@@ -111,16 +108,13 @@ class ImageSegmenterHelper(
             val optionsBuilder = ImageSegmenter.ImageSegmenterOptions.builder()
                 .setRunningMode(runningMode)
                 .setBaseOptions(baseOptions)
-                .setOutputCategoryMask(false)
-                .setOutputConfidenceMasks(true)
-
-            if (runningMode == RunningMode.LIVE_STREAM) {
-                optionsBuilder.setResultListener(this::returnSegmentationResult)
-                    .setErrorListener(this::returnSegmentationHelperError)
-            }
+                .setOutputCategoryMask(true)
+                .setOutputConfidenceMasks(false)
 
             val options = optionsBuilder.build()
+
             imagesegmenter = ImageSegmenter.createFromOptions(context, options)
+
         } catch (e: IllegalStateException) {
             imageSegmenterListener?.onError(
                 "Image segmenter failed to initialize. See error logs for details"
@@ -142,111 +136,11 @@ class ImageSegmenterHelper(
         }
     }
 
-    // Runs image segmentation on live streaming cameras frame-by-frame and
-    // returns the results asynchronously to the caller.
-    fun segmentLiveStreamFrame(imageProxy: ImageProxy) {
-        if (runningMode != RunningMode.LIVE_STREAM) {
-            throw IllegalArgumentException(
-                "Attempting to call segmentLiveStreamFrame" + " while not using RunningMode.LIVE_STREAM"
-            )
-        }
-
-        val frameTime = SystemClock.uptimeMillis()
-        val bitmapBuffer = Bitmap.createBitmap(
-            imageProxy.width, imageProxy.height, Bitmap.Config.ARGB_8888
-        )
-
-        imageProxy.use {
-            bitmapBuffer.copyPixelsFromBuffer(imageProxy.planes[0].buffer)
-        }
-
-        // Used for rotating the frame image so it matches our models
-        val matrix = Matrix().apply {
-            postRotate(imageProxy.imageInfo.rotationDegrees.toFloat())
-        }
-
-        imageProxy.close()
-
-        val rotatedBitmap = Bitmap.createBitmap(
-            bitmapBuffer,
-            0,
-            0,
-            bitmapBuffer.width,
-            bitmapBuffer.height,
-            matrix,
-            true
-        )
-
-        val mpImage = BitmapImageBuilder(rotatedBitmap).build()
-
-        imagesegmenter?.segmentAsync(mpImage, frameTime)
-    }
-
     // Runs image segmentation on single image and
     // returns the results asynchronously to the caller.
     fun segmentImageFile(mpImage: MPImage): ImageSegmenterResult? {
-        if (runningMode != RunningMode.IMAGE) {
-            throw IllegalArgumentException(
-                "Attempting to call segmentImageFile" + " while not using RunningMode.IMAGE"
-            )
-        }
         return imagesegmenter?.segment(mpImage)
     }
-
-    // Runs image segmentation on each video frame and
-    // returns the results asynchronously to the caller.
-    @kotlin.jvm.Throws(Exception::class)
-    fun segmentVideoFile(mpImage: MPImage): ImageSegmenterResult? {
-        if (runningMode != RunningMode.VIDEO) {
-            throw IllegalArgumentException(
-                "Attempting to call segmentVideoFile" + " while not using RunningMode.VIDEO"
-            )
-        }
-
-        return imagesegmenter?.segmentForVideo(
-            mpImage,
-            SystemClock.uptimeMillis()
-        )
-    }
-
-    // MPImage isn't necessary for this example, but the listener requires it
-    private fun returnSegmentationResult(
-        result: ImageSegmenterResult, image: MPImage
-    ) {
-        val finishTimeMs = SystemClock.uptimeMillis()
-
-        val inferenceTime = finishTimeMs - result.timestampMs()
-
-        // We only need the first mask for this sample because we are using
-        // the OutputType CATEGORY_MASK, which only provides a single mask.
-        val mpImage = result.confidenceMasks().get().get(0)
-
-        imageSegmenterListener?.onResults(
-            ResultBundle(
-                ByteBufferExtractor.extract(mpImage).asFloatBuffer(),
-                mpImage.width,
-                mpImage.height,
-                inferenceTime
-            )
-        )
-    }
-
-    // Return errors thrown during segmentation to this
-    // ImageSegmenterHelper's caller
-    private fun returnSegmentationHelperError(error: RuntimeException) {
-        imageSegmenterListener?.onError(
-            error.message ?: "An unknown error has occurred"
-        )
-    }
-
-    // Wraps results from inference, the time it takes for inference to be
-    // performed.
-    data class ResultBundle(
-        val results: FloatBuffer,
-        val width: Int,
-        val height: Int,
-        val inferenceTime: Long,
-    )
 
     companion object {
         const val DELEGATE_CPU = 0
@@ -267,8 +161,14 @@ class ImageSegmenterHelper(
         private const val TAG = "ImageSegmenterHelper"
     }
 
+
     interface SegmenterListener {
         fun onError(error: String, errorCode: Int = OTHER_ERROR)
-        fun onResults(resultBundle: ResultBundle)
+        fun onResults(
+            results: ByteBuffer,
+            width: Int,
+            height: Int,
+            inferenceTime: Long,
+        )
     }
 }

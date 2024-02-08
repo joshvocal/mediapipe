@@ -23,17 +23,9 @@ import android.util.AttributeSet
 import android.view.View
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import java.nio.ByteBuffer
-import java.nio.FloatBuffer
-import kotlin.math.max
 import kotlin.math.min
 
-class OverlayView(context: Context?, attrs: AttributeSet?) :
-    View(context, attrs) {
-    companion object {
-
-        const val ALPHA_COLOR = 128
-    }
-
+class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs) {
     private var scaleBitmap: Bitmap? = null
     private var runningMode: RunningMode = RunningMode.IMAGE
 
@@ -54,17 +46,18 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
     }
 
     fun setResults(
-        byteBuffer: FloatBuffer,
+        byteBuffer: ByteBuffer,
         outputWidth: Int,
         outputHeight: Int
     ) {
         // Create the mask bitmap with colors and the set of detected labels.
         val pixels = IntArray(byteBuffer.capacity())
-        for (i in pixels.indices) {
-            val confidence = byteBuffer.get()
 
-            val color =
-                Color.argb((255 * confidence).toInt(), 0, 0, 128)
+        for (i in pixels.indices) {
+            val index = byteBuffer.get(i).toUInt() % 20U
+
+            val color = if (index == 0U) Color.TRANSPARENT else Color.BLUE
+
             pixels[i] = color
         }
         val image = Bitmap.createBitmap(
@@ -74,18 +67,8 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
             Bitmap.Config.ARGB_8888
         )
 
-        val scaleFactor = when (runningMode) {
-            RunningMode.IMAGE,
-            RunningMode.VIDEO -> {
-                min(width * 1f / outputWidth, height * 1f / outputHeight)
-            }
-            RunningMode.LIVE_STREAM -> {
-                // PreviewView is in FILL_START mode. So we need to scale up the
-                // landmarks to match with the size that the captured images will be
-                // displayed.
-                max(width * 1f / outputWidth, height * 1f / outputHeight)
-            }
-        }
+        // RunningMode.IMAGE
+        val scaleFactor = min(width * 1f / outputWidth, height * 1f / outputHeight)
 
         val scaleWidth = (outputWidth * scaleFactor).toInt()
         val scaleHeight = (outputHeight * scaleFactor).toInt()
@@ -93,7 +76,12 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
         scaleBitmap = Bitmap.createScaledBitmap(
             image, scaleWidth, scaleHeight, false
         )
+
         invalidate()
+    }
+
+    companion object {
+        const val ALPHA_COLOR = 128
     }
 }
 
