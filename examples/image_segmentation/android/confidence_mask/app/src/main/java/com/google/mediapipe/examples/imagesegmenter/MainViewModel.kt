@@ -16,6 +16,7 @@
 package com.google.mediapipe.examples.imagesegmenter
 
 import androidx.lifecycle.ViewModel
+import com.google.mediapipe.examples.imagesegmenter.mediapipe.ImageSegmenterHelper
 
 /**
  *  This ViewModel is used to store image segmenter helper settings

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.google.mediapipe.examples.imagesegmenter
+package com.google.mediapipe.examples.imagesegmenter.mediapipe
 
 import android.content.Context
 import android.util.Log
