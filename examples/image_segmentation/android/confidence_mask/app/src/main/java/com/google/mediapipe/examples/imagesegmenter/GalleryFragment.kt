@@ -37,6 +37,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import com.google.mediapipe.examples.imagesegmenter.databinding.FragmentGalleryBinding
 import com.google.mediapipe.examples.imagesegmenter.mediapipe.ImageSegmenterHelper
+import com.google.mediapipe.examples.imagesegmenter.tensorflow.InterpreterImageSegmenterHelper
 import com.google.mediapipe.examples.imagesegmenter.tensorflow.TensorImageSegmenterHelper
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.framework.image.ByteBufferExtractor
@@ -68,6 +69,7 @@ class GalleryFragment : Fragment(), ImageSegmenterHelper.SegmenterListener,
     }
 
     private var tensorImageSegmenterHelper: TensorImageSegmenterHelper? = null
+    private var interpreterImageSegmenterHelper: InterpreterImageSegmenterHelper? = null
 
     private val viewModel: MainViewModel by activityViewModels()
 
@@ -83,8 +85,8 @@ class GalleryFragment : Fragment(), ImageSegmenterHelper.SegmenterListener,
             uri?.let { mediaUri ->
                 when (val mediaType = loadMediaType(mediaUri)) {
 //                    MediaType.IMAGE -> runSegmentationOnImage(mediaUri)
-                    MediaType.IMAGE -> runTensorSegmentationOnImage(mediaUri)
-//                    MediaType.IMAGE -> runInterpreterSegmentationOnImage(mediaUri)
+//                    MediaType.IMAGE -> runTensorSegmentationOnImage(mediaUri)
+                    MediaType.IMAGE -> runInterpreterSegmentationOnImage(mediaUri)
                     MediaType.UNKNOWN -> {
                         updateDisplayView(mediaType)
                         Toast.makeText(
@@ -206,12 +208,11 @@ class GalleryFragment : Fragment(), ImageSegmenterHelper.SegmenterListener,
 
         backgroundScope = CoroutineScope(Dispatchers.IO)
 
-        tensorImageSegmenterHelper = TensorImageSegmenterHelper(
-            context = requireContext()
-        )
+        interpreterImageSegmenterHelper =
+            InterpreterImageSegmenterHelper(context = requireContext())
 
         backgroundScope?.launch {
-            val result = tensorImageSegmenterHelper?.segmentImageWithInterpreter(
+            val result = interpreterImageSegmenterHelper?.segmentImageWithInterpreter(
                 bitmap = inputImage,
             )
 
